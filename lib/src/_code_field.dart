@@ -25,6 +25,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
   final double floatingCursorWidth;
   final EdgeInsetsGeometry padding;
   final bool readOnly;
+  final int? maxLengthSingleLineRendering;
   final LayerLink startHandleLayerLink;
   final LayerLink endHandleLayerLink;
 
@@ -53,12 +54,13 @@ class _CodeField extends SingleChildRenderObjectWidget {
     floatingCursorWidth,
     required this.padding,
     required this.readOnly,
+    this.maxLengthSingleLineRendering,
     required this.startHandleLayerLink,
     required this.endHandleLayerLink,
   }): assert(codes.isNotEmpty),
       floatingCursorColor = floatingCursorColor ?? cursorColor,
       floatingCursorWidth = floatingCursorWidth ?? cursorWidth;
-      
+
 
   @override
   RenderObject createRenderObject(BuildContext context) => _CodeFieldRender(
@@ -85,6 +87,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
     floatingCursorWidth: floatingCursorWidth,
     padding: padding,
     readOnly: readOnly,
+    maxLengthSingleLineRendering: maxLengthSingleLineRendering,
     startHandleLayerLink: startHandleLayerLink,
     endHandleLayerLink: endHandleLayerLink,
   );
@@ -115,6 +118,7 @@ class _CodeField extends SingleChildRenderObjectWidget {
       ..floatingCursorWidth = floatingCursorWidth
       ..padding = padding
       ..readOnly = readOnly
+      ..maxLengthSingleLineRendering = maxLengthSingleLineRendering
       ..startHandleLayerLink = startHandleLayerLink
       ..endHandleLayerLink = endHandleLayerLink;
   }
@@ -139,6 +143,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   ValueChanged<List<CodeLineRenderParagraph>> _onRenderParagraphsChanged;
   EdgeInsetsGeometry _padding;
   bool _readOnly;
+  int? _maxLengthSingleLineRendering;
   Color? _chunkIndicatorColor;
 
   double? _horizontalViewportSize;
@@ -176,6 +181,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     required double floatingCursorWidth,
     required EdgeInsetsGeometry padding,
     required bool readOnly,
+    int? maxLengthSingleLineRendering,
     required LayerLink startHandleLayerLink,
     required LayerLink endHandleLayerLink,
   }) : _verticalViewport = verticalViewport,
@@ -192,6 +198,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     _onRenderParagraphsChanged = onRenderParagraphsChanged,
     _padding = padding,
     _readOnly = readOnly,
+    _maxLengthSingleLineRendering = maxLengthSingleLineRendering,
     _chunkIndicatorColor = chunkIndicatorColor,
     _paint = Paint(),
     _displayParagraphs = [],
@@ -218,9 +225,9 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         ),
         _CodeFieldFloatingCursorPainter(
           position: _floatingCursorNotifier.value,
-          color: floatingCursorColor, 
-          width: floatingCursorWidth, 
-          height: 0.0, 
+          color: floatingCursorColor,
+          width: floatingCursorWidth,
+          height: 0.0,
         )
       ]
     );
@@ -513,6 +520,14 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     markNeedsPaint();
   }
 
+  set maxLengthSingleLineRendering(int? value) {
+    if (_maxLengthSingleLineRendering == value) {
+      return;
+    }
+    _maxLengthSingleLineRendering = value;
+    markNeedsLayout();
+  }
+
   List<CodeLineRenderParagraph> get displayParagraphs => _displayParagraphs;
 
   Offset get paintOffset => Offset(_horizontalViewport?.pixels ?? 0, _verticalViewport.pixels);
@@ -661,7 +676,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       }
       if (tryCount < 10) {
         SchedulerBinding.instance.addPostFrameCallback((timeStamp) {
-          makePositionCenterIfInvisible(position, tryCount: tryCount);
+          makePositionCenterIfInvisible(position, tryCount: tryCount + 1);
         });
       }
       return;
@@ -748,7 +763,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     if (!isValidPointer(localPosition)) {
       return -1;
     }
-    final int index = _chunkIndicators.indexWhere((element) => element.region.contains(localPosition));
+    final int index = _chunkIndicators.indexWhere((chunk) => chunk.canExpand && chunk.region.contains(localPosition));
     if (index < 0) {
       return -1;
     }
@@ -839,7 +854,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       } else if (span is HitTestTarget) {
         result.add(HitTestEntry(span as HitTestTarget));
       }
-      if (_chunkIndicators.where((element) => element.region.contains(position)).isNotEmpty) {
+      if (_chunkIndicators.where((chunk) => chunk.canExpand && chunk.region.contains(position)).isNotEmpty) {
         _cursor = SystemMouseCursors.click;
       } else {
         _cursor = SystemMouseCursors.text;
@@ -1006,11 +1021,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         double delta = 0;
         double offset = _displayParagraphs.first.top;
         for (int i = _displayParagraphs.first.index - 1; i >= 0; i--) {
-          final IParagraph paragraph = _highlighter.build(
-            index: i,
-            style: _textStyle,
-            maxWidth: effectiveWidth
-          );
+          final IParagraph paragraph = _buildParagraph(i, effectiveWidth);
           delta += paragraph.height - _preferredLineHeight;
           offset -= paragraph.height;
           if (target >= offset) {
@@ -1088,7 +1099,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
   }
 
   void _drawChunkIndicatorIfNeeded(Canvas canvas, CodeLineRenderParagraph paragraph, Offset offset) {
-    if (!paragraph.chunkParent) {
+    if (!paragraph.chunkParent && !paragraph.chunkLongText) {
       return;
     }
     final Color? chunkIndicatorColor = _chunkIndicatorColor ?? _textStyle.color?.withAlpha(128);
@@ -1100,7 +1111,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       return;
     }
     final Rect region = _drawChunkIndicator(canvas, chunkIndicatorColor, offset + end);
-    _chunkIndicators.add(_CodeChunkIndicator(region, paragraph.index));
+    _chunkIndicators.add(_CodeChunkIndicator(region, paragraph.index, paragraph.chunkParent));
   }
 
   Rect _drawChunkIndicator(Canvas canvas, Color color, Offset offset) {
@@ -1191,6 +1202,11 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     return true;
   }
 
+  bool isValidPointer2(Offset globalPosition) {
+    final Offset localPosition = globalToLocal(globalPosition);
+    return isValidPointer(localPosition);
+  }
+
   CodeLineRange? _selectWord(Offset localPosition) {
     final Offset offset = localPosition + paintOffset;
     final CodeLineRenderParagraph? target = _findDisplayRenderParagraph(offset);
@@ -1265,7 +1281,8 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
         index: i,
         paragraph: paragraph,
         offset: Offset(paddingLeft, offset + paddingTop),
-        chunkParent: _codes[i].chunkParent
+        chunkParent: _codes[i].chunkParent,
+        chunkLongText: paragraph.trucated,
       ));
       offset += paragraph.height;
       if (offset + paddingTop >= _verticalViewport.pixels + size.height) {
@@ -1280,6 +1297,7 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       index: index,
       style: _textStyle,
       maxWidth: maxWidth ?? (_horizontalViewport == null ? size.width - padding.horizontal : double.infinity),
+      maxLengthSingleLineRendering: _maxLengthSingleLineRendering,
     );
   }
 
@@ -1289,8 +1307,9 @@ class _CodeChunkIndicator {
 
   final Rect region;
   final int index;
+  final bool canExpand;
 
-  const _CodeChunkIndicator(this.region, this.index);
+  const _CodeChunkIndicator(this.region, this.index, this.canExpand);
 }
 
 abstract class _CodeFieldExtraPainter extends ChangeNotifier {
@@ -1656,7 +1675,7 @@ class _CodeFieldFloatingCursorPainter extends _CodeFieldExtraPainter {
       return;
     }
     _position = value;
-    notifyListeners(); 
+    notifyListeners();
   }
 
   set color(Color value) {
@@ -1709,8 +1728,8 @@ class _CodeFieldFloatingCursorPainter extends _CodeFieldExtraPainter {
     canvas.drawShadow(
       path,
       Colors.black,
-      4.0,            
-      true,           
+      4.0,
+      true,
     );
 
     _paint.color = _color;

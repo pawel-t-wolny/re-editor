@@ -33,7 +33,7 @@ class CodeKeywordPrompt extends CodePrompt {
   });
 
   @override
-  CodeAutocompleteResult get autocomplete => CodeAutocompleteResult.fromText(word);
+  CodeAutocompleteResult get autocomplete => CodeAutocompleteResult.fromWord(word);
 
   @override
   bool match(String input) {
@@ -72,7 +72,7 @@ class CodeFieldPrompt extends CodePrompt {
   final CodeAutocompleteResult? customAutocomplete;
 
   @override
-  CodeAutocompleteResult get autocomplete => customAutocomplete ?? CodeAutocompleteResult.fromText(word);
+  CodeAutocompleteResult get autocomplete => customAutocomplete ?? CodeAutocompleteResult.fromWord(word);
 
   @override
   bool match(String input) {
@@ -117,7 +117,7 @@ class CodeFunctionPrompt extends CodePrompt {
   final CodeAutocompleteResult? customAutocomplete;
 
   @override
-  CodeAutocompleteResult get autocomplete => customAutocomplete ?? CodeAutocompleteResult.fromText('$word(${parameters.keys.join(', ')})');
+  CodeAutocompleteResult get autocomplete => customAutocomplete ?? CodeAutocompleteResult.fromWord('$word(${parameters.keys.join(', ')})');
 
   @override
   bool match(String input) {
@@ -144,23 +144,26 @@ class CodeFunctionPrompt extends CodePrompt {
 class CodeAutocompleteResult {
 
   const CodeAutocompleteResult({
-    required this.text,
+    required this.input,
+    required this.word,
     required this.selection
   });
 
-  factory CodeAutocompleteResult.fromText(String text) {
+  factory CodeAutocompleteResult.fromWord(String word) {
     return CodeAutocompleteResult(
-      text: text,
+      input: '',
+      word: word,
       selection: TextSelection.collapsed(
-        offset: text.length
+        offset: word.length
       )
     );
   }
 
   /// The autocomplete text.
   /// e.g.
-  /// If user inputs `go` and the text is `good`, we will replace `go` with `good`.
-  final String text;
+  /// If user inputs `go` and the word is `good`, we will replace `go` with `good`.
+  final String input;
+  final String word;
 
   /// The new selection after the autocompletion.
   final TextSelection selection;
@@ -199,16 +202,16 @@ class CodeAutocompleteEditingValue {
 
   CodeAutocompleteResult get autocomplete {
     final CodeAutocompleteResult result = prompts[index].autocomplete;
-    if (result.text.isEmpty) {
+    if (result.word.isEmpty) {
       return result;
     }
-    final String finalText = result.text.substring(input.length);
     final TextSelection finalSelection = result.selection.copyWith(
       baseOffset: result.selection.baseOffset - input.length,
       extentOffset: result.selection.extentOffset - input.length,
     );
     return CodeAutocompleteResult(
-      text: finalText,
+      input: input,
+      word: result.word,
       selection: finalSelection,
     );
   }

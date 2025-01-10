@@ -39,6 +39,7 @@ class _CodeEditable extends StatefulWidget {
   final bool readOnly;
   final bool autofocus;
   final bool wordWrap;
+  final int? maxLengthSingleLineRendering;
   final CodeFindController findController;
   final CodeScrollController scrollController;
   final CodeChunkController chunkController;
@@ -79,6 +80,7 @@ class _CodeEditable extends StatefulWidget {
     required this.readOnly,
     required this.autofocus,
     required this.wordWrap,
+    this.maxLengthSingleLineRendering,
     required this.findController,
     required this.scrollController,
     required this.chunkController,
@@ -306,6 +308,8 @@ class _CodeEditableState extends State<_CodeEditable> with AutomaticKeepAliveCli
       cursorWidth: widget.cursorWidth,
       padding: widget.padding,
       readOnly: widget.readOnly,
+      // Enable long text rendering when the find is on.
+      maxLengthSingleLineRendering: widget.findController.value != null ? null : widget.maxLengthSingleLineRendering,
       startHandleLayerLink: widget.startHandleLayerLink,
       endHandleLayerLink: widget.endHandleLayerLink,
     );
@@ -424,7 +428,9 @@ class _CodeEditableState extends State<_CodeEditable> with AutomaticKeepAliveCli
       onAutocomplete: (value) {
         autocompleteState.dismiss();
         final CodeLineSelection selection = widget.controller.selection;
-        widget.controller.replaceSelection(value.text);
+        widget.controller.replaceSelection(value.word, selection.copyWith(
+          baseOffset: selection.baseOffset - value.input.length,
+        ));
         widget.controller.selection = selection.copyWith(
           baseOffset: selection.baseOffset + value.selection.baseOffset,
           extentOffset: selection.extentOffset + value.selection.extentOffset,
